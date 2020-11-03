@@ -27,11 +27,40 @@ namespace WebApplication.Models
 
     public class UserInfoViewModel
     {
-        public string Email { get; set; }
+        //public bool HasRegistered { get; set; }
 
-        public bool HasRegistered { get; set; }
+        //public string LoginProvider { get; set; }
 
-        public string LoginProvider { get; set; }
+        public string Login { get; set; }
+
+        public string FistName { get; set; }
+
+        public string SecondName { get; set; }
+
+        public string Patronymic { get; set; }
+
+        public string DateOfBirth { get; set; }
+
+        public IEnumerable<string> Emails { get; set; }
+
+        public IEnumerable<string> PhoneNumbers { get; set; }
+
+        public IEnumerable<dynamic> Addresses { get; set; }
+    }
+
+    public class UserEmailViewModel
+    {
+        public IEnumerable<string> Emails { get; set; }
+    }
+
+    public class UserPhoneNumberViewModel
+    {
+        public IEnumerable<string> PhoneNumbers { get; set; }
+    }
+
+    public class UserAddressViewModel
+    {
+        public IEnumerable<dynamic> Addresses { get; set; }
     }
 
     public class UserLoginInfoViewModel

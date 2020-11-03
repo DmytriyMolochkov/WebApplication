@@ -1,5 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data.Entity;
+using System.Data.Entity.Validation;
+using System.Linq;
 using System.Net.Http;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -10,6 +13,7 @@ using System.Web.Http.ModelBinding;
 using Microsoft.AspNet.Identity;
 using Microsoft.AspNet.Identity.EntityFramework;
 using Microsoft.AspNet.Identity.Owin;
+using Microsoft.Owin;
 using Microsoft.Owin.Security;
 using Microsoft.Owin.Security.Cookies;
 using Microsoft.Owin.Security.OAuth;
@@ -25,9 +29,11 @@ namespace WebApplication.Controllers
     {
         private const string LocalLoginProvider = "Local";
         private ApplicationUserManager _userManager;
+        private ApplicationDbContext DBContext;
 
         public AccountController()
         {
+            DBContext = HttpContext.Current.GetOwinContext().Get<ApplicationDbContext>();
         }
 
         public AccountController(ApplicationUserManager userManager,
@@ -51,22 +57,41 @@ namespace WebApplication.Controllers
 
         public ISecureDataFormat<AuthenticationTicket> AccessTokenFormat { get; private set; }
 
+
+        //[HostAuthentication(DefaultAuthenticationTypes.ExternalBearer)]
+
         // GET api/Account/UserInfo
-        [HostAuthentication(DefaultAuthenticationTypes.ExternalBearer)]
+        [HttpGet]
         [Route("UserInfo")]
         public UserInfoViewModel GetUserInfo()
         {
-            ExternalLoginData externalLogin = ExternalLoginData.FromIdentity(User.Identity as ClaimsIdentity);
+            //ExternalLoginData externalLogin = ExternalLoginData.FromIdentity(User.Identity as ClaimsIdentity);
+
+            ApplicationUser user = UserManager.FindById(User.Identity.GetUserId());
+
+            if (user == null)
+                return null;
 
             return new UserInfoViewModel
             {
-                Email = User.Identity.GetUserName(),
-                HasRegistered = externalLogin == null,
-                LoginProvider = externalLogin != null ? externalLogin.LoginProvider : null
+                //HasRegistered = externalLogin == null,
+                //LoginProvider = externalLogin != null ? externalLogin.LoginProvider : null,
+                Login = user.UserName,
+                FistName = user.FistName,
+                SecondName = user.SecondName,
+                Patronymic = user.Patronymic,
+                DateOfBirth = user.DateOfBirth,
+                Emails = user.Emails.Select(m => m.Value),
+                PhoneNumbers = user.PhoneNumbers.Select(ph => ph.Value),
+                Addresses = user.Addresses.Select(a =>
+                    new { House = a.House, City = a.City, Street = a.Street, Apartment = a.Apartment }),
             };
         }
 
+        #region Функции "из коробки"
+
         // POST api/Account/Logout
+        [HttpPost]
         [Route("Logout")]
         public IHttpActionResult Logout()
         {
@@ -115,6 +140,7 @@ namespace WebApplication.Controllers
         }
 
         // POST api/Account/ChangePassword
+        [HttpPost]
         [Route("ChangePassword")]
         public async Task<IHttpActionResult> ChangePassword(ChangePasswordBindingModel model)
         {
@@ -125,7 +151,7 @@ namespace WebApplication.Controllers
 
             IdentityResult result = await UserManager.ChangePasswordAsync(User.Identity.GetUserId(), model.OldPassword,
                 model.NewPassword);
-            
+
             if (!result.Succeeded)
             {
                 return GetErrorResult(result);
@@ -135,6 +161,7 @@ namespace WebApplication.Controllers
         }
 
         // POST api/Account/SetPassword
+        [HttpPost]
         [Route("SetPassword")]
         public async Task<IHttpActionResult> SetPassword(SetPasswordBindingModel model)
         {
@@ -154,6 +181,7 @@ namespace WebApplication.Controllers
         }
 
         // POST api/Account/AddExternalLogin
+        [HttpPost]
         [Route("AddExternalLogin")]
         public async Task<IHttpActionResult> AddExternalLogin(AddExternalLoginBindingModel model)
         {
@@ -192,6 +220,7 @@ namespace WebApplication.Controllers
         }
 
         // POST api/Account/RemoveLogin
+        [HttpPost]
         [Route("RemoveLogin")]
         public async Task<IHttpActionResult> RemoveLogin(RemoveLoginBindingModel model)
         {
@@ -258,9 +287,9 @@ namespace WebApplication.Controllers
             if (hasRegistered)
             {
                 Authentication.SignOut(DefaultAuthenticationTypes.ExternalCookie);
-                
-                 ClaimsIdentity oAuthIdentity = await user.GenerateUserIdentityAsync(UserManager,
-                    OAuthDefaults.AuthenticationType);
+
+                ClaimsIdentity oAuthIdentity = await user.GenerateUserIdentityAsync(UserManager,
+                   OAuthDefaults.AuthenticationType);
                 ClaimsIdentity cookieIdentity = await user.GenerateUserIdentityAsync(UserManager,
                     CookieAuthenticationDefaults.AuthenticationType);
 
@@ -318,29 +347,8 @@ namespace WebApplication.Controllers
             return logins;
         }
 
-        // POST api/Account/Register
-        [AllowAnonymous]
-        [Route("Register")]
-        public async Task<IHttpActionResult> Register(RegisterBindingModel model)
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
-            var user = new ApplicationUser() { UserName = model.Email, Email = model.Email };
-
-            IdentityResult result = await UserManager.CreateAsync(user, model.Password);
-
-            if (!result.Succeeded)
-            {
-                return GetErrorResult(result);
-            }
-
-            return Ok();
-        }
-
         // POST api/Account/RegisterExternal
+        [HttpPost]
         [OverrideAuthentication]
         [HostAuthentication(DefaultAuthenticationTypes.ExternalBearer)]
         [Route("RegisterExternal")]
@@ -357,7 +365,7 @@ namespace WebApplication.Controllers
                 return InternalServerError();
             }
 
-            var user = new ApplicationUser() { UserName = model.Email, Email = model.Email };
+            var user = new ApplicationUser() { UserName = model.Login, Email = model.Email };
 
             IdentityResult result = await UserManager.CreateAsync(user);
             if (!result.Succeeded)
@@ -368,8 +376,509 @@ namespace WebApplication.Controllers
             result = await UserManager.AddLoginAsync(user.Id, info.Login);
             if (!result.Succeeded)
             {
-                return GetErrorResult(result); 
+                return GetErrorResult(result);
             }
+            return Ok();
+        }
+
+        #endregion
+
+        // POST api/Account/Register
+        [HttpPost]
+        [AllowAnonymous]
+        [Route("Register")]
+        public async Task<IHttpActionResult> Register(RegisterBindingModel model)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            DateTime.TryParse(model.DateOfBirth, out DateTime dateofBirth);
+
+            var user = new ApplicationUser()
+            {
+                UserName = model.Login,
+                FistName = model.FistName,
+                SecondName = model.SecondName,
+                Patronymic = model.Patronymic,
+                DateOfBirth = dateofBirth.ToString("d"),
+                Email = model.Email
+            };
+
+            IdentityResult result = await UserManager.CreateAsync(user, model.Password);
+
+            if (!result.Succeeded)
+            {
+                return GetErrorResult(result);
+            }
+
+            user.Emails = new List<UserEmail>() { new UserEmail() { Value = model.Email } };
+            user.PhoneNumbers = new List<UserPhoneNumber> { new UserPhoneNumber() { Value = model.PhoneNumber } };
+            user.Addresses = new List<UserAddress>
+            {
+                new UserAddress()
+                {
+                    City = model.Address.City,
+                    Street = model.Address.Street,
+                    House = model.Address.House,
+                    Apartment = model.Address.Apartment
+                }
+            };
+
+            result = await UserManager.UpdateAsync(user);
+
+            if (!result.Succeeded)
+            {
+                return GetErrorResult(result);
+            }
+
+            return Ok();
+        }
+
+        // POST api/Account/Email
+        [HttpPost]
+        [Route("Email")]
+        public async Task<IHttpActionResult> AddEmail(EmailBindingModel model)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            ApplicationUser user = UserManager.FindById(User.Identity.GetUserId());
+
+            if (user == null)
+                return null;
+
+            if (user.Emails.Any(em => em.Value == model.Email))
+                ModelState.AddModelError("Email", $"Почтовый адрес {model.Email} уже существует");
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            user.Emails.Add(new UserEmail() { Value = model.Email });
+            IdentityResult result = await UserManager.UpdateAsync(user);
+
+            if (!result.Succeeded)
+            {
+                return GetErrorResult(result);
+            }
+
+            return Ok();
+        }
+
+        // GET api/Account/Email
+        [HttpGet]
+        [Route("Email")]
+        public UserEmailViewModel GetEmail()
+        {
+            ApplicationUser user = UserManager.FindById(User.Identity.GetUserId());
+
+            if (user == null)
+                return null;
+
+            return new UserEmailViewModel
+            {
+                Emails = user.Emails.Select(m => m.Value)
+            };
+        }
+
+        // PUT api/Account/Email
+        [HttpPut]
+        [Route("Email")]
+        public async Task<IHttpActionResult> PutEmail(PutEmailBindingModel model)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            ApplicationUser user = UserManager.FindById(User.Identity.GetUserId());
+
+            if (user == null)
+                return null;
+
+            UserEmail existingEmail = user.Emails.FirstOrDefault(em => em.Value == model.OldEmail);
+
+            if (existingEmail == null)
+                ModelState.AddModelError("OldEmail", $"Почтовый адрес {model.OldEmail} не найден");
+
+            if (user.Emails.Any(em => em.Value == model.NewEmail))
+                ModelState.AddModelError("NewEmail", $"Почтовый адрес {model.NewEmail} уже существует");
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            user.Emails.Remove(existingEmail);
+            DBContext.Entry(existingEmail).State = EntityState.Deleted;
+            user.Emails.Add(new UserEmail() { Value = model.NewEmail });
+
+            IdentityResult result = await UserManager.UpdateAsync(user);
+
+            if (!result.Succeeded)
+            {
+                return GetErrorResult(result);
+            }
+
+            return Ok();
+        }
+
+        // DELETE api/Account/Email
+        [HttpDelete]
+        [Route("Email")]
+        public async Task<IHttpActionResult> DeleteEmail(EmailBindingModel model)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            ApplicationUser user = UserManager.FindById(User.Identity.GetUserId());
+
+            if (user == null)
+                return null;
+
+            UserEmail existingEmail = user.Emails.FirstOrDefault(em => em.Value == model.Email);
+
+            if (existingEmail == null)
+                ModelState.AddModelError("Email", $"Почтовый адрес {model.Email} не найден");
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+
+            user.Emails.Remove(existingEmail);
+            DBContext.Entry(existingEmail).State = EntityState.Deleted;
+
+            IdentityResult result = await UserManager.UpdateAsync(user);
+
+            if (!result.Succeeded)
+            {
+                return GetErrorResult(result);
+            }
+
+            return Ok();
+        }
+
+        // POST api/Account/PhoneNumber
+        [HttpPost]
+        [Route("PhoneNumber")]
+        public async Task<IHttpActionResult> AddPhoneNumber(PhoneNumberBindingModel model)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            ApplicationUser user = UserManager.FindById(User.Identity.GetUserId());
+
+            if (user == null)
+                return null;
+
+            if (user.PhoneNumbers.Any(p => p.Value == model.PhoneNumber))
+                ModelState.AddModelError("PhoneNumber", $"Номер телефона {model.PhoneNumber} уже существует");
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            user.PhoneNumbers.Add(new UserPhoneNumber() { Value = model.PhoneNumber });
+
+            IdentityResult result = await UserManager.UpdateAsync(user);
+
+            if (!result.Succeeded)
+            {
+                return GetErrorResult(result);
+            }
+
+            return Ok();
+        }
+
+        // GET api/Account/PhoneNumber
+        [HttpGet]
+        [Route("PhoneNumber")]
+        public UserPhoneNumberViewModel GetPhoneNumber()
+        {
+            ApplicationUser user = UserManager.FindById(User.Identity.GetUserId());
+
+            if (user == null)
+                return null;
+
+            return new UserPhoneNumberViewModel
+            {
+                PhoneNumbers = user.PhoneNumbers.Select(m => m.Value)
+            };
+        }
+
+        // PUT api/Account/PhoneNumber
+        [HttpPut]
+        [Route("PhoneNumber")]
+        public async Task<IHttpActionResult> PutPhoneNumber(PutPhoneNumberBindingModel model)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            ApplicationUser user = UserManager.FindById(User.Identity.GetUserId());
+
+            if (user == null)
+                return null;
+
+            UserPhoneNumber existingPhoneNumber = user.PhoneNumbers.FirstOrDefault(ph => ph.Value == model.OldPhoneNumber);
+
+            if (existingPhoneNumber == null)
+                ModelState.AddModelError("OldEmail", $"Номер телефона {model.OldPhoneNumber} не найден");
+
+            if (user.PhoneNumbers.Any(ph => ph.Value == model.NewPhoneNumber))
+                ModelState.AddModelError("NewEmail", $"Номер телефона {model.NewPhoneNumber} уже существует");
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            user.PhoneNumbers.Remove(existingPhoneNumber);
+            DBContext.Entry(existingPhoneNumber).State = EntityState.Deleted;
+            user.PhoneNumbers.Add(new UserPhoneNumber() { Value = model.NewPhoneNumber });
+
+            IdentityResult result = await UserManager.UpdateAsync(user);
+
+            if (!result.Succeeded)
+            {
+                return GetErrorResult(result);
+            }
+
+            return Ok();
+        }
+
+        // DELETE api/Account/PhoneNumber
+        [HttpDelete]
+        [Route("PhoneNumber")]
+        public async Task<IHttpActionResult> DeletePhoneNumber(PhoneNumberBindingModel model)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            ApplicationUser user = UserManager.FindById(User.Identity.GetUserId());
+
+            if (user == null)
+                return null;
+
+            UserPhoneNumber existingPhoneNumber = user.PhoneNumbers.FirstOrDefault(ph => ph.Value == model.PhoneNumber);
+
+            if (existingPhoneNumber == null)
+                ModelState.AddModelError("PhoneNumber", $"Номер телефона {model.PhoneNumber} не найден");
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            user.PhoneNumbers.Remove(existingPhoneNumber);
+            DBContext.Entry(existingPhoneNumber).State = EntityState.Deleted;
+
+            IdentityResult result = await UserManager.UpdateAsync(user);
+
+            if (!result.Succeeded)
+            {
+                return GetErrorResult(result);
+            }
+
+            return Ok();
+        }
+
+        // POST api/Account/Address
+        [HttpPost]
+        [Route("Address")]
+        public async Task<IHttpActionResult> AddAddress(AddressBindingModel model)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            ApplicationUser user = UserManager.FindById(User.Identity.GetUserId());
+
+            if (user == null)
+                return null;
+
+            UserAddress address = new UserAddress()
+            {
+                City = model.City,
+                Street = model.Street,
+                House = model.House,
+                Apartment = model.Apartment
+            };
+
+            if (user.Addresses.Any(a => a.Equals(address)))
+                ModelState.AddModelError("Address",
+                    $"Адрес гор. {address.City}, " +
+                    $"ул. {address.Street}, " +
+                    $"дом {address.House}" +
+                    (address.Apartment == "" ? "" : $", кв. {address.Apartment}")
+                    + " уже существует");
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            user.Addresses.Add(address);
+
+            IdentityResult result = await UserManager.UpdateAsync(user);
+
+            if (!result.Succeeded)
+            {
+                return GetErrorResult(result);
+            }
+
+            return Ok();
+        }
+
+        // GET api/Account/Address
+        [HttpGet]
+        [Route("Address")]
+        public UserAddressViewModel GetAddress()
+        {
+            ApplicationUser user = UserManager.FindById(User.Identity.GetUserId());
+
+            if (user == null)
+                return null;
+
+            return new UserAddressViewModel
+            {
+                Addresses = user.Addresses.Select(a =>
+                    new { House = a.House, City = a.City, Street = a.Street, Apartment = a.Apartment })
+            };
+        }
+
+        // PUT api/Account/Address
+        [HttpPut]
+        [Route("Address")]
+        public async Task<IHttpActionResult> PutAddress(PutAddressBindingModel model)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            ApplicationUser user = UserManager.FindById(User.Identity.GetUserId());
+
+            if (user == null)
+                return null;
+
+            UserAddress oldAddress = new UserAddress()
+            {
+                City = model.OldAddress.City,
+                Street = model.OldAddress.Street,
+                House = model.OldAddress.House,
+                Apartment = model.OldAddress.Apartment
+            };
+
+            UserAddress newAddress = new UserAddress()
+            {
+                City = model.NewAddress.City,
+                Street = model.NewAddress.Street,
+                House = model.NewAddress.House,
+                Apartment = model.NewAddress.Apartment
+            };
+
+            UserAddress existingAddress = user.Addresses.FirstOrDefault(ad => ad.Equals(oldAddress));
+
+            if (existingAddress == null)
+                ModelState.AddModelError("OldAddress",
+                    $"Адрес гор. {oldAddress.City}, " +
+                    $"ул. {oldAddress.Street}, " +
+                    $"дом {oldAddress.House}" +
+                    (oldAddress.Apartment == "" ? "" : $", кв. {oldAddress.Apartment}") +
+                    " не найден");
+
+            if (user.Addresses.Any(ad => ad.Equals(newAddress)))
+                ModelState.AddModelError("NewAddress",
+                    $"Адрес гор. {newAddress.City}, " +
+                    $"ул. {newAddress.Street}, " +
+                    $"дом {newAddress.House}" +
+                    (newAddress.Apartment == "" ? "" : $", кв. {newAddress.Apartment}") +
+                    " уже существует");
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            user.Addresses.Remove(existingAddress);
+            DBContext.Entry(existingAddress).State = EntityState.Deleted;
+            user.Addresses.Add(newAddress);
+
+            IdentityResult result = await UserManager.UpdateAsync(user);
+
+            if (!result.Succeeded)
+            {
+                return GetErrorResult(result);
+            }
+
+            return Ok();
+        }
+
+        // DELETE api/Account/Address
+        [HttpDelete]
+        [Route("Address")]
+        public async Task<IHttpActionResult> DeleteAddress(AddressBindingModel model)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            ApplicationUser user = UserManager.FindById(User.Identity.GetUserId());
+
+            if (user == null)
+                return null;
+
+            UserAddress address = new UserAddress()
+            {
+                City = model.City,
+                Street = model.Street,
+                House = model.House,
+                Apartment = model.Apartment
+            };
+
+            UserAddress existingAddress = user.Addresses.FirstOrDefault(ad => ad.Equals(address));
+
+            if (existingAddress == null)
+                ModelState.AddModelError("Address",
+                    $"Адрес гор. {address.City}, " +
+                    $"ул. {address.Street}, " +
+                    $"дом {address.House}" +
+                    (address.Apartment == "" ? "" : $", кв. {address.Apartment}") +
+                    " не найден");
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            user.Addresses.Remove(existingAddress);
+            DBContext.Entry(existingAddress).State = EntityState.Deleted;
+
+            IdentityResult result = await UserManager.UpdateAsync(user);
+
+            if (!result.Succeeded)
+            {
+                return GetErrorResult(result);
+            }
+
             return Ok();
         }
 
@@ -488,6 +997,25 @@ namespace WebApplication.Controllers
                 return HttpServerUtility.UrlTokenEncode(data);
             }
         }
+
+        //try
+        //{
+        //   
+        //   
+        //}
+        //catch (DbEntityValidationException ex)
+        //{
+        //    foreach (DbEntityValidationResult validationError in ex.EntityValidationErrors)
+        //    {
+        //        var qwe = "Object: " + validationError.Entry.Entity.ToString();
+
+        //        foreach (DbValidationError err in validationError.ValidationErrors)
+        //        {
+        //            qwe += "\n" + err.ErrorMessage;
+        //        }
+        //        var f = false;
+        //    }
+        //}
 
         #endregion
     }

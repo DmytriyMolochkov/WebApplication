@@ -1149,7 +1149,7 @@ $.extend( $.validator, {
 
 	classRuleSettings: {
 		required: { required: true },
-		email: { email: true },
+		//email: { email: true },
 		url: { url: true },
 		date: { date: true },
 		dateISO: { dateISO: true },
