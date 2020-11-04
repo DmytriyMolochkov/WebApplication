@@ -44,6 +44,7 @@ namespace WebApplication.Models
         public ApplicationDbContext()
             : base("DefaultConnection", throwIfV1Schema: false)
         {
+            var list = new List<string>() { };
         }
 
         public DbSet<UserEmail> UserEmail { get; set; }

@@ -5,6 +5,8 @@ using Swashbuckle.Application;
 using System;
 using System.Xml.XPath;
 using Swashbuckle.Swagger;
+using System.Web.Http.Description;
+using System.Collections.Generic;
 
 [assembly: PreApplicationStartMethod(typeof(SwaggerConfig), "Register")]
 
@@ -12,6 +14,99 @@ namespace WebApplication
 {
     public class SwaggerConfig
     {
+        public class AuthTokenOperation : IDocumentFilter
+        {
+            /// <summary>
+            /// Apply custom operation.
+            /// </summary>
+            /// <param name="swaggerDoc">The swagger document.</param>
+            /// <param name="schemaRegistry">The schema registry.</param>
+            /// <param name="apiExplorer">The api explorer.</param>
+            public void Apply(SwaggerDocument swaggerDoc, SchemaRegistry schemaRegistry, IApiExplorer apiExplorer)
+            {
+                swaggerDoc.paths.Add("/token", new PathItem
+                {
+                    post = new Operation
+                    {
+                        tags = new List<string> { "Auth" },
+                        consumes = new List<string>
+                        {
+                            "application/x-www-form-urlencoded"
+                        },
+                        parameters = new List<Parameter>
+                    {
+                        new Parameter
+                        {
+                            type = "string",
+                            name = "grant_type",
+                            required = true,
+                            @default="password",
+                            @in = "formData"
+                        },
+                        new Parameter
+                        {
+                            type = "string",
+                            name = "username",
+                            required = false,
+                            @in = "formData"
+                        },
+                        new Parameter
+                        {
+                            type = "string",
+                            name = "password",
+                            required = false,
+                            @in = "formData"
+                        },
+                    }
+                    }
+                });
+            }
+        }
+
+        /// <summary>
+        /// The class to add the authorization header.
+        /// </summary>
+        public class AddAuthorizationHeaderParameterOperationFilter : IOperationFilter
+        {
+            /// <summary>
+            /// Applies the operation filter.
+            /// </summary>
+            /// <param name="operation"></param>
+            /// <param name="schemaRegistry"></param>
+            /// <param name="apiDescription"></param>
+            public void Apply(Operation operation, SchemaRegistry schemaRegistry, ApiDescription apiDescription)
+            {
+                if (operation.parameters != null)
+                {
+                    operation.parameters.Add(new Parameter
+                    {
+                        name = "Authorization",
+                        @in = "header",
+                        description = "access token",
+                        required = false,
+                        type = "string",
+                        @default = "Bearer "
+                      
+                    });
+                }
+                else
+                {
+                    operation.parameters = new List<Parameter>
+                    {
+                        new Parameter
+                        {
+                            name = "Authorization",
+                            @in = "header",
+                            description = "access token",
+                            required = false,
+                            type = "string",
+                            @default = "Bearer "
+                        }
+                    };
+                }
+            }
+        }
+
         public static void Register()
         {
             var thisAssembly = typeof(SwaggerConfig).Assembly;
@@ -19,6 +114,9 @@ namespace WebApplication
             GlobalConfiguration.Configuration
                 .EnableSwagger(c =>
                     {
+                        c.DocumentFilter<AuthTokenOperation>();
+                        c.OperationFilter<AddAuthorizationHeaderParameterOperationFilter>();
+
                         // By default, the service root url is inferred from the request used to access the docs.
                         // However, there may be situations (e.g. proxy and load-balanced environments) where this does not
                         // resolve correctly. You can workaround this by providing your own code to determine the root URL.
