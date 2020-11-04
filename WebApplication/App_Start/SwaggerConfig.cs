@@ -84,8 +84,7 @@ namespace WebApplication
                         @in = "header",
                         description = "access token",
                         required = false,
-                        type = "string",
-                        @default = "Bearer "
+                        type = "string"
                       
                     });
                 }
@@ -99,8 +98,7 @@ namespace WebApplication
                             @in = "header",
                             description = "access token",
                             required = false,
-                            type = "string",
-                            @default = "Bearer "
+                            type = "string"
                         }
                     };
                 }
